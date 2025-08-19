@@ -1,16 +1,36 @@
 pipeline {
   agent any
+
   environment {
+    // ---- Docker Hub ----
     DOCKERHUB_REPO = 'sadikmert/flask-ci-cd'
     IMAGE_TAG      = "${BUILD_NUMBER}"
+
+    // ---- Kubernetes (Minikube) ----
     KUBECONFIG     = '/var/jenkins_home/.kube/config'
     APP_NAME       = 'flask-app'
+
+    // ---- EC2 (Docker ile deploy) ----
+    EC2_HOST       = '51.20.66.234'  // Örn: 3.XX.XX.XX veya ec2-xx-xx-xx.compute.amazonaws.com
+    EC2_USER       = 'ubuntu'                     // Amazon Linux ise 'ec2-user'
   }
+
+  // GitHub push ile otomatik tetikleme
   triggers { githubPush() }
-  options { skipDefaultCheckout(true); timestamps(); disableConcurrentBuilds() }
+
+  options {
+    skipDefaultCheckout(true)
+    timestamps()
+    disableConcurrentBuilds()
+  }
 
   stages {
-    stage('a) Clone') { steps { checkout scm } }
+
+    stage('a) Clone') {
+      steps {
+        checkout scm
+      }
+    }
 
     stage('b) Build Artifact (.tar.gz)') {
       steps {
@@ -49,7 +69,8 @@ pipeline {
       }
     }
 
-    stage('f) Apply Manifests') {
+    // ---- Minikube (K8s) ----
+    stage('f) K8s Apply Manifests (Minikube)') {
       steps {
         sh '''
           set -eux
@@ -59,7 +80,7 @@ pipeline {
       }
     }
 
-    stage('g) Update Image & Rollout') {
+    stage('g) K8s Update Image & Rollout (Minikube)') {
       steps {
         sh '''
           set -eux
@@ -69,7 +90,59 @@ pipeline {
       }
     }
 
-    stage('h) Smoke Check') {
+    // ---- EC2 (Docker) ----
+    stage('h) Deploy to EC2 (Docker)') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', passwordVariable: 'DH_PASS', usernameVariable: 'DH_USER')]) {
+          sshagent(credentials: ['ec2-ssh-key']) {
+            sh '''
+              set -euxo pipefail
+              ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} '
+                set -eux
+
+                # Docker yoksa kur (Ubuntu / Amazon Linux temeli)
+                if ! command -v docker >/dev/null 2>&1; then
+                  if [ -f /etc/debian_version ]; then
+                    sudo apt-get update && sudo apt-get install -y docker.io
+                    sudo systemctl enable --now docker
+                  else
+                    sudo yum update -y || true
+                    (sudo amazon-linux-extras install docker -y || sudo yum install -y docker)
+                    sudo systemctl enable --now docker
+                  fi
+                fi
+
+                # Docker Hub login (pull için)
+                echo "${DH_PASS}" | sudo docker login -u "${DH_USER}" --password-stdin
+
+                # Yeni imajı çek, eski container'ı kaldır, yenisini ayağa kaldır
+                sudo docker pull ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                sudo docker rm -f flask-app || true
+                # 80:5000 -> EC2 Security Group'ta 80/tcp inbound açık olmalı
+                sudo docker run -d --name flask-app --restart unless-stopped -p 80:5000 ${DOCKERHUB_REPO}:${IMAGE_TAG}
+              '
+            '''
+          }
+        }
+      }
+    }
+
+    stage('i) Post-Deploy Check (EC2)') {
+      steps {
+        sshagent(credentials: ['ec2-ssh-key']) {
+          sh '''
+            set -eux
+            ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} '
+              set -eux
+              sudo docker ps
+              curl -fsS http://localhost/health || true
+            '
+          '''
+        }
+      }
+    }
+
+    stage('j) Smoke Check (K8s Summary)') {
       steps {
         sh '''
           set -eux
