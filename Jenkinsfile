@@ -11,7 +11,7 @@ pipeline {
     APP_NAME       = 'flask-app'
 
     // ---- EC2 (Docker ile deploy) ----
-    EC2_HOST       = '51.20.66.234'  // Örn: 3.XX.XX.XX veya ec2-xx-xx-xx.compute.amazonaws.com
+    EC2_HOST       = 'YOUR.EC2.PUBLIC.IP.OR.DNS'  // Örn: 3.XX.XX.XX veya ec2-xx-xx-xx.compute.amazonaws.com
     EC2_USER       = 'ubuntu'                     // Amazon Linux ise 'ec2-user'
   }
 
@@ -34,59 +34,65 @@ pipeline {
 
     stage('b) Build Artifact (.tar.gz)') {
       steps {
-        sh 'bash build_artifact.sh'
+        sh '''#!/usr/bin/env bash
+set -euo pipefail
+bash build_artifact.sh
+'''
         archiveArtifacts artifacts: 'dist/app.tar.gz', fingerprint: true
       }
     }
 
     stage('c) Docker Build') {
       steps {
-        sh '''
-          set -eux
-          docker build \
-            -t ${DOCKERHUB_REPO}:${IMAGE_TAG} \
-            -t ${DOCKERHUB_REPO}:latest \
-            .
-        '''
+        sh '''#!/usr/bin/env bash
+set -euo pipefail
+docker build \
+  -t ${DOCKERHUB_REPO}:${IMAGE_TAG} \
+  -t ${DOCKERHUB_REPO}:latest \
+  .
+'''
       }
     }
 
     stage('d) DockerHub Login') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', passwordVariable: 'DH_PASS', usernameVariable: 'DH_USER')]) {
-          sh 'echo "$DH_PASS" | docker login -u "$DH_USER" --password-stdin'
+          sh '''#!/usr/bin/env bash
+set -euo pipefail
+echo "$DH_PASS" | docker login -u "$DH_USER" --password-stdin
+'''
         }
       }
     }
 
     stage('e) Docker Push') {
       steps {
-        sh '''
-          set -eux
-          docker push ${DOCKERHUB_REPO}:${IMAGE_TAG}
-          docker push ${DOCKERHUB_REPO}:latest
-        '''
+        sh '''#!/usr/bin/env bash
+set -euo pipefail
+docker push ${DOCKERHUB_REPO}:${IMAGE_TAG}
+docker push ${DOCKERHUB_REPO}:latest
+'''
       }
     }
 
     // ---- Minikube (K8s) ----
     stage('f) K8s Apply Manifests (Minikube)') {
       steps {
-        sh '''
-          set -eux
-          kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml
-        '''
+        sh '''#!/usr/bin/env bash
+set -euo pipefail
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+'''
       }
     }
 
     stage('g) K8s Update Image & Rollout (Minikube)') {
       steps {
-        sh '''
-          set -eux
-          kubectl set image deployment/${APP_NAME} ${APP_NAME}=${DOCKERHUB_REPO}:${IMAGE_TAG} --record
-          kubectl rollout status deployment/${APP_NAME} --timeout=180s
-        '''
+        sh '''#!/usr/bin/env bash
+set -euo pipefail
+kubectl set image deployment/${APP_NAME} ${APP_NAME}=${DOCKERHUB_REPO}:${IMAGE_TAG} --record
+kubectl rollout status deployment/${APP_NAME} --timeout=180s
+'''
       }
     }
 
@@ -95,33 +101,34 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', passwordVariable: 'DH_PASS', usernameVariable: 'DH_USER')]) {
           sshagent(credentials: ['ec2-ssh-key']) {
-            sh '''
-              set -euxo pipefail
-              ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} '
-                set -eux
+            sh '''#!/usr/bin/env bash
+set -euo pipefail
 
-                # Docker yoksa kur (Ubuntu / Amazon Linux temeli)
-                if ! command -v docker >/dev/null 2>&1; then
-                  if [ -f /etc/debian_version ]; then
-                    sudo apt-get update && sudo apt-get install -y docker.io
-                    sudo systemctl enable --now docker
-                  else
-                    sudo yum update -y || true
-                    (sudo amazon-linux-extras install docker -y || sudo yum install -y docker)
-                    sudo systemctl enable --now docker
-                  fi
-                fi
+# Uzak tarafta env taşıyarak bash ile çalıştır
+ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} "DOCKERHUB_REPO=${DOCKERHUB_REPO} IMAGE_TAG=${IMAGE_TAG} DH_USER=${DH_USER} DH_PASS=${DH_PASS} bash -lc '
+  set -euo pipefail
 
-                # Docker Hub login (pull için)
-                echo "${DH_PASS}" | sudo docker login -u "${DH_USER}" --password-stdin
+  # Docker yoksa kur
+  if ! command -v docker >/dev/null 2>&1; then
+    if [ -f /etc/debian_version ]; then
+      sudo apt-get update && sudo apt-get install -y docker.io
+      sudo systemctl enable --now docker
+    else
+      sudo yum update -y || true
+      (sudo amazon-linux-extras install docker -y || sudo yum install -y docker)
+      sudo systemctl enable --now docker
+    fi
+  fi
 
-                # Yeni imajı çek, eski container'ı kaldır, yenisini ayağa kaldır
-                sudo docker pull ${DOCKERHUB_REPO}:${IMAGE_TAG}
-                sudo docker rm -f flask-app || true
-                # 80:5000 -> EC2 Security Group'ta 80/tcp inbound açık olmalı
-                sudo docker run -d --name flask-app --restart unless-stopped -p 80:5000 ${DOCKERHUB_REPO}:${IMAGE_TAG}
-              '
-            '''
+  # Docker Hub login (pull için)
+  echo \"$DH_PASS\" | sudo docker login -u \"$DH_USER\" --password-stdin
+
+  # Yeni imajı çek, eskiyi kaldır, yeniyi 80:5000 ile ayağa kaldır
+  sudo docker pull \"$DOCKERHUB_REPO:$IMAGE_TAG\"
+  sudo docker rm -f flask-app || true
+  sudo docker run -d --name flask-app --restart unless-stopped -p 80:5000 \"$DOCKERHUB_REPO:$IMAGE_TAG\"
+'"
+'''
           }
         }
       }
@@ -130,33 +137,36 @@ pipeline {
     stage('i) Post-Deploy Check (EC2)') {
       steps {
         sshagent(credentials: ['ec2-ssh-key']) {
-          sh '''
-            set -eux
-            ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} '
-              set -eux
-              sudo docker ps
-              curl -fsS http://localhost/health || true
-            '
-          '''
+          sh '''#!/usr/bin/env bash
+set -euo pipefail
+ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} 'bash -lc "
+  set -euo pipefail
+  sudo docker ps
+  curl -fsS http://localhost/health || true
+"'
+'''
         }
       }
     }
 
     stage('j) Smoke Check (K8s Summary)') {
       steps {
-        sh '''
-          set -eux
-          kubectl get deploy,po,svc -o wide
-          kubectl get svc flask-service -o wide
-        '''
+        sh '''#!/usr/bin/env bash
+set -euo pipefail
+kubectl get deploy,po,svc -o wide
+kubectl get svc flask-service -o wide
+'''
       }
     }
   }
 
   post {
     always {
-      sh "kubectl get pods -o wide || true"
-      sh "kubectl get svc || true"
+      sh '''#!/usr/bin/env bash
+set -euo pipefail
+kubectl get pods -o wide || true
+kubectl get svc || true
+'''
     }
   }
 }
