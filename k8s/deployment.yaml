@@ -1,24 +1,33 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: flask-ci-cd
-  labels: { app: flask-ci-cd }
+  name: flask-app
+  labels:
+    app: flask-app
 spec:
   replicas: 1
-  selector: { matchLabels: { app: flask-ci-cd } }
+  selector:
+    matchLabels:
+      app: flask-app
   template:
-    metadata: { labels: { app: flask-ci-cd } }
+    metadata:
+      labels:
+        app: flask-app
     spec:
       containers:
-      - name: flask
-        image: sadikmert/flask-ci-cd:latest   # <-- BURAYI KENDİ ADINLA DEĞİŞTİR
-        imagePullPolicy: Always
-        ports: [{ containerPort: 5000 }]
-        readinessProbe:
-          httpGet: { path: /health, port: 5000 }
-          initialDelaySeconds: 3
-          periodSeconds: 5
-        livenessProbe:
-          httpGet: { path: /health, port: 5000 }
-          initialDelaySeconds: 10
-          periodSeconds: 10
+        - name: flask-app
+          image: sadikmert/flask-ci-cd:latest
+          ports:
+            - containerPort: 5000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
