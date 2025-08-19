@@ -1,30 +1,16 @@
 pipeline {
   agent any
-
   environment {
-    // Docker Hub deposu
     DOCKERHUB_REPO = 'sadikmert/flask-ci-cd'
-    // Her build için benzersiz etiket
     IMAGE_TAG      = "${BUILD_NUMBER}"
-    // Jenkins container içindeki kubeconfig yolu
     KUBECONFIG     = '/var/jenkins_home/.kube/config'
-    // Deployment ve container adı (deployment.yaml ile uyumlu)
     APP_NAME       = 'flask-app'
   }
-
-  // GitHub push/merge ile otomatik tetikleme
   triggers { githubPush() }
-
-  options {
-    skipDefaultCheckout(true)
-    timestamps()
-    disableConcurrentBuilds() // Aynı anda birden fazla build olmasın
-  }
+  options { skipDefaultCheckout(true); timestamps(); disableConcurrentBuilds() }
 
   stages {
-    stage('a) Clone') {
-      steps { checkout scm }
-    }
+    stage('a) Clone') { steps { checkout scm } }
 
     stage('b) Build Artifact (.tar.gz)') {
       steps {
@@ -63,7 +49,7 @@ pipeline {
       }
     }
 
-    stage('f) K8s Apply Manifests') {
+    stage('f) Apply Manifests') {
       steps {
         sh '''
           set -eux
