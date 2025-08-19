@@ -4,7 +4,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Merhaba! CI/CD + Kubernetes (Minikube) üzerinde Flask Sadik taradıdan yapıldı  🎉"
+    return "Merhaba! CI/CD + Kubernetes (Minikube) üzerinde Flask DevOps taradıdan yapıldı  🎉"
 
 @app.route("/health")
 def health():
