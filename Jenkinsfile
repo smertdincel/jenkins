@@ -2,24 +2,28 @@ pipeline {
   agent any
 
   environment {
-    DOCKERHUB_REPO = 'sadikmert/flask-ci-cd'  // <- burayı kendi kullanıcı adınla değiştir
-    KUBECONFIG = '/var/jenkins_home/.kube/config'
+    // Docker Hub deposu
+    DOCKERHUB_REPO = 'sadikmert/flask-ci-cd'
+    // Her build için benzersiz etiket
+    IMAGE_TAG      = "${BUILD_NUMBER}"
+    // Jenkins container içindeki kubeconfig yolu
+    KUBECONFIG     = '/var/jenkins_home/.kube/config'
+    // Deployment ve container adı (deployment.yaml ile uyumlu)
+    APP_NAME       = 'flask-app'
   }
 
-  triggers {
-    githubPush()
-  }
+  // GitHub push/merge ile otomatik tetikleme
+  triggers { githubPush() }
 
   options {
     skipDefaultCheckout(true)
     timestamps()
+    disableConcurrentBuilds() // Aynı anda birden fazla build olmasın
   }
 
   stages {
     stage('a) Clone') {
-      steps {
-        checkout scm
-      }
+      steps { checkout scm }
     }
 
     stage('b) Build Artifact (.tar.gz)') {
@@ -31,7 +35,13 @@ pipeline {
 
     stage('c) Docker Build') {
       steps {
-        sh "docker build -t ${DOCKERHUB_REPO}:latest ."
+        sh '''
+          set -eux
+          docker build \
+            -t ${DOCKERHUB_REPO}:${IMAGE_TAG} \
+            -t ${DOCKERHUB_REPO}:latest \
+            .
+        '''
       }
     }
 
@@ -45,21 +55,41 @@ pipeline {
 
     stage('e) Docker Push') {
       steps {
-        sh "docker push ${DOCKERHUB_REPO}:latest"
+        sh '''
+          set -eux
+          docker push ${DOCKERHUB_REPO}:${IMAGE_TAG}
+          docker push ${DOCKERHUB_REPO}:latest
+        '''
       }
     }
 
-    stage('f) K8s Apply Deployment') {
+    stage('f) K8s Apply Manifests') {
       steps {
-        sh "kubectl apply -f k8s/deployment.yaml"
-        sh "kubectl rollout status deployment/flask-app --timeout=120s"
+        sh '''
+          set -eux
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+        '''
       }
     }
 
-    stage('g) K8s Apply Service') {
+    stage('g) Update Image & Rollout') {
       steps {
-        sh "kubectl apply -f k8s/service.yaml"
-        sh "kubectl get svc flask-service -o wide"
+        sh '''
+          set -eux
+          kubectl set image deployment/${APP_NAME} ${APP_NAME}=${DOCKERHUB_REPO}:${IMAGE_TAG} --record
+          kubectl rollout status deployment/${APP_NAME} --timeout=180s
+        '''
+      }
+    }
+
+    stage('h) Smoke Check') {
+      steps {
+        sh '''
+          set -eux
+          kubectl get deploy,po,svc -o wide
+          kubectl get svc flask-service -o wide
+        '''
       }
     }
   }
