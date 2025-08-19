@@ -11,7 +11,7 @@ pipeline {
     APP_NAME       = 'flask-app'
 
     // ---- EC2 (Docker ile deploy) ----
-    EC2_HOST       = 'YOUR.EC2.PUBLIC.IP.OR.DNS'  // Örn: 3.XX.XX.XX veya ec2-xx-xx-xx.compute.amazonaws.com
+    EC2_HOST       = '51.20.66.234'  // Örn: 3.XX.XX.XX veya ec2-xx-xx-xx.compute.amazonaws.com
     EC2_USER       = 'ubuntu'                     // Amazon Linux ise 'ec2-user'
   }
 
