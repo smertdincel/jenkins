@@ -9,10 +9,6 @@ __pycache__/
 venv/
 env/
 
-# Git
-.git
-.gitignore
-
 # OS / Editor
 .DS_Store
 .vscode/
@@ -30,11 +26,11 @@ pip-wheel-metadata/
 .coverage*
 htmlcov/
 
-# Env & secrets
+# Env & secrets (asla commit etme)
 .env
 *.pem
 *.key
 *.crt
 
-# Misc
+# Logs
 *.log
