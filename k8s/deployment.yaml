@@ -6,6 +6,12 @@ metadata:
     app: flask-app
 spec:
   replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
   selector:
     matchLabels:
       app: flask-app
@@ -17,6 +23,7 @@ spec:
       containers:
         - name: flask-app
           image: sadikmert/flask-ci-cd:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 5000
           readinessProbe:
@@ -31,3 +38,10 @@ spec:
               port: 5000
             initialDelaySeconds: 10
             periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
